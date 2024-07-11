@@ -26,13 +26,14 @@
         flake-utils.follows = "flake-utils";
       };
     };
-    authentik-src = { # change version string in outputs as well when updating
-      url = "github:goauthentik/authentik/version/2024.4.3";
+    authentik-src = {
+      # change version string in outputs as well when updating
+      url = "github:goauthentik/authentik/version/2024.6.0";
       flake = false;
     };
   };
 
-  outputs = inputs@{
+  outputs = inputs @ {
     self,
     nixpkgs,
     flake-parts,
@@ -41,23 +42,25 @@
     authentik-src,
     ...
   }:
-
-  flake-parts.lib.mkFlake
-    { inherit inputs; }
-    ({ inputs, lib, withSystem, ... }:
-    let
-      authentik-version = "2024.4.3"; # to pass to the drvs of some components
+    flake-parts.lib.mkFlake
+    {inherit inputs;}
+    ({
+      inputs,
+      lib,
+      withSystem,
+      ...
+    }: let
+      authentik-version = "2024.6.0"; # to pass to the drvs of some components
     in {
       systems = [
         "x86_64-linux"
         "aarch64-linux" # not tested
       ];
-      flake = { self, ... }: {
-        nixosModules.default = { pkgs, ... }: {
-          imports = [ ./module.nix ];
+      flake = {self, ...}: {
+        nixosModules.default = {pkgs, ...}: {
+          imports = [./module.nix];
           services.authentik.authentikComponents = pkgs.lib.mkDefault (withSystem pkgs.stdenv.hostPlatform.system (
-            { config, ... }:
-            { inherit (config.packages) manage staticWorkdirDeps migrate pythonEnv frontend gopkgs docs; }
+            {config, ...}: {inherit (config.packages) manage staticWorkdirDeps migrate pythonEnv frontend gopkgs docs;}
           ));
         };
 
@@ -67,35 +70,45 @@
         # create a new scope with patched versions of individual authentik components
         #
         # see ./tests/override-scope.nix for a usage example
-        lib.mkAuthentikScope = let authentik-version' = authentik-version; in {
-          pkgs,
-          system ? pkgs.stdenv.hostPlatform.system,
-          authentik-version ? authentik-version',
-          mkPoetryEnv ? (import inputs.poetry2nix { inherit pkgs; }).mkPoetryEnv,
-          defaultPoetryOverrides ? (import inputs.poetry2nix { inherit pkgs; }).defaultPoetryOverrides,
-          authentikPoetryOverrides ? import ./poetry2nix-python-overrides.nix pkgs,
-          buildNapalmPackage ? napalm.legacyPackages.${system}.buildPackage
-        }:
-          import ./components {
-            inherit pkgs authentik-src authentik-version mkPoetryEnv defaultPoetryOverrides authentikPoetryOverrides buildNapalmPackage;
-          };
+        lib.mkAuthentikScope = let
+          authentik-version' = authentik-version;
+        in
+          {
+            pkgs,
+            system ? pkgs.stdenv.hostPlatform.system,
+            authentik-version ? authentik-version',
+            mkPoetryEnv ? (import inputs.poetry2nix {inherit pkgs;}).mkPoetryEnv,
+            defaultPoetryOverrides ? (import inputs.poetry2nix {inherit pkgs;}).defaultPoetryOverrides,
+            authentikPoetryOverrides ? import ./poetry2nix-python-overrides.nix pkgs,
+            buildNapalmPackage ? napalm.legacyPackages.${system}.buildPackage,
+          }:
+            import ./components {
+              inherit pkgs authentik-src authentik-version mkPoetryEnv defaultPoetryOverrides authentikPoetryOverrides buildNapalmPackage;
+            };
       };
-      perSystem = { pkgs, system, self', ... }: let
-        inherit (self.lib.mkAuthentikScope { inherit pkgs; }) authentikComponents;
+      perSystem = {
+        pkgs,
+        system,
+        self',
+        ...
+      }: let
+        inherit (self.lib.mkAuthentikScope {inherit pkgs;}) authentikComponents;
       in {
         packages = {
-          inherit (authentikComponents)
+          inherit
+            (authentikComponents)
             docs
             frontend
             pythonEnv
             gopkgs
             staticWorkdirDeps
             migrate
-            manage;
+            manage
+            ;
 
           terraform-provider-authentik = inputs.nixpkgs.legacyPackages.${system}.buildGo121Module rec {
             pname = "terraform-provider-authentik";
-            version = "2024.4.1";
+            version = "2024.6.0";
             src = pkgs.fetchFromGitHub {
               owner = "goauthentik";
               repo = pname;
@@ -114,15 +127,15 @@
         };
         checks = {
           default = self.checks.${system}.vmtest;
-          vmtest = (import tests/minimal-vmtest.nix {
+          vmtest = import tests/minimal-vmtest.nix {
             inherit pkgs authentik-version;
             inherit (self) nixosModules;
-          });
-        # override-scope = (import tests/override-scope.nix {
-        #   inherit pkgs authentik-version;
-        #   inherit (self) nixosModules;
-        #   inherit (self.lib) mkAuthentikScope;
-        # });
+          };
+          # override-scope = (import tests/override-scope.nix {
+          #   inherit pkgs authentik-version;
+          #   inherit (self) nixosModules;
+          #   inherit (self.lib) mkAuthentikScope;
+          # });
         };
       };
     });
